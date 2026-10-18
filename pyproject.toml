@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freshdock"
+version = "0.1.0"
+description = "Lightweight Docker auto-updater with health-gated rollout and rollback"
+readme = "README.md"
+authors = [{name = "Clawdyy", email = "intertermux@gmail.com"}]
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.scripts]
+freshdock = "freshdock.cli:main"
