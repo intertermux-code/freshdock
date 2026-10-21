@@ -52,8 +52,16 @@ class Database:
 
     def watch(self, container: Optional[str] = None, image: Optional[str] = None, last_digest: Optional[str] = None):
         cur = self.conn.cursor()
+        # SQLite treats NULLs as distinct in a UNIQUE constraint, so the
+        # constraint alone does not stop a second watch of the same image.
         cur.execute(
-            "INSERT OR IGNORE INTO watched (container, image, last_digest) VALUES (?, ?, ?)",
+            "SELECT 1 FROM watched WHERE container IS ? AND image IS ?",
+            (container, image),
+        )
+        if cur.fetchone():
+            return
+        cur.execute(
+            "INSERT INTO watched (container, image, last_digest) VALUES (?, ?, ?)",
             (container, image, last_digest),
         )
         self.conn.commit()
@@ -73,10 +81,19 @@ class Database:
 
     def update_last_digest(self, container: Optional[str] = None, image: Optional[str] = None, digest: Optional[str] = None):
         cur = self.conn.cursor()
-        cur.execute(
-            "UPDATE watched SET last_digest = ? WHERE container = ? OR image = ?",
-            (digest, container, image),
-        )
+        # A container names its own entry; an image only entry is the one
+        # without a container. Matching on the image alone would rewrite the
+        # digest of every other container that watches the same image.
+        if container is not None:
+            cur.execute(
+                "UPDATE watched SET last_digest = ? WHERE container = ?",
+                (digest, container),
+            )
+        else:
+            cur.execute(
+                "UPDATE watched SET last_digest = ? WHERE container IS NULL AND image = ?",
+                (digest, image),
+            )
         self.conn.commit()
 
     def record_history(self, container=None, image=None, old_digest=None, new_digest=None, status="ok", details=None):

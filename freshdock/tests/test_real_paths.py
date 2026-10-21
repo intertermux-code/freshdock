@@ -44,6 +44,50 @@ class TestParseImage(unittest.TestCase):
         self.assertEqual(p["repo"], "team/app")
         self.assertEqual(p["tag"], "1.2")
 
+    def test_docker_hub_namespace_keeps_its_own_path(self):
+        p = _parse_image("myorg/app:1.0")
+        self.assertEqual(p["registry"], "registry-1.docker.io")
+        self.assertEqual(p["repo"], "myorg/app")
+        self.assertEqual(p["tag"], "1.0")
+
+    def test_docker_hub_namespace_two_levels(self):
+        p = _parse_image("myorg/sub/app")
+        self.assertEqual(p["repo"], "myorg/sub/app")
+        self.assertEqual(p["tag"], "latest")
+
+
+class TestWatchedEntries(unittest.TestCase):
+    def _db(self):
+        handle = tempfile.NamedTemporaryFile(delete=False)
+        handle.close()
+        self.addCleanup(lambda: os.path.exists(handle.name) and os.unlink(handle.name))
+        return Database(handle.name), handle.name
+
+    def test_watching_the_same_image_twice_keeps_one_entry(self):
+        db, _ = self._db()
+        self.addCleanup(db.close)
+        db.watch(image="nginx:latest")
+        db.watch(image="nginx:latest")
+        self.assertEqual(len(db.list_watched()), 1)
+
+    def test_digest_of_one_container_leaves_the_others_alone(self):
+        db, _ = self._db()
+        self.addCleanup(db.close)
+        db.watch(container="c1", image="nginx:latest")
+        db.watch(container="c2", image="nginx:latest")
+        db.update_last_digest(container="c1", image="nginx:latest", digest="sha256:new")
+        digests = {(e["container"], e["last_digest"]) for e in db.list_watched()}
+        self.assertEqual(digests, {("c1", "sha256:new"), ("c2", None)})
+
+    def test_digest_of_an_image_entry_leaves_container_entries_alone(self):
+        db, _ = self._db()
+        self.addCleanup(db.close)
+        db.watch(image="nginx:latest")
+        db.watch(container="c1", image="nginx:latest")
+        db.update_last_digest(container=None, image="nginx:latest", digest="sha256:new")
+        digests = {(e["container"], e["last_digest"]) for e in db.list_watched()}
+        self.assertEqual(digests, {(None, "sha256:new"), ("c1", None)})
+
 
 def _serve_once(sock_path, response):
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

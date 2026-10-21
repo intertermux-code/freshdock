@@ -31,7 +31,14 @@ python -m freshdock run --once
 python -m freshdock run --interval 300
 ```
 
-5. View history:
+5. See what is watched, and stop watching something:
+
+```bash
+python -m freshdock list
+python -m freshdock remove --container <container_name>
+```
+
+6. View history:
 
 ```bash
 python -m freshdock history

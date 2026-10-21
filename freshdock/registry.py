@@ -124,7 +124,9 @@ def _parse_image(image: str) -> Dict:
         if "." in first or ":" in first or first == "localhost":
             registry, repo = first, rest
         else:
-            registry, repo = "registry-1.docker.io", ("library/" + ref) if ref.count("/") == 1 and "." not in first else ref
+            # Docker Hub namespace: the repository keeps the part before the
+            # slash. Only single word images live under "library".
+            registry, repo = "registry-1.docker.io", ref
     else:
         registry, repo = "registry-1.docker.io", f"library/{ref}"
     if ":" in repo:
