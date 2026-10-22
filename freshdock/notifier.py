@@ -1,6 +1,12 @@
+import json
+import sys
 import urllib.parse
 import urllib.request
 from typing import Optional
+
+
+def _log(message: str):
+    print(f"freshdock: {message}", file=sys.stderr)
 
 
 class Notifier:
@@ -25,6 +31,47 @@ class NtfyNotifier(Notifier):
                 return resp.read()
         except Exception:
             # Swallow errors as per stdlib only - don't crash
+            return None
+
+
+class WebhookNotifier(Notifier):
+    def __init__(self, url: str, timeout: int = 10):
+        self.url = url
+        self.timeout = timeout
+
+    def send(self, title: str, message: str, priority: Optional[str] = None, fields: Optional[dict] = None):
+        payload = {"title": title, "body": message, "fields": fields or {}}
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        req = urllib.request.Request(self.url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.read()
+        except Exception as e:
+            _log(f"webhook notification failed: {e}")
+            return None
+
+
+class DiscordNotifier(Notifier):
+    def __init__(self, url: str, timeout: int = 10):
+        self.url = url
+        self.timeout = timeout
+
+    def send(self, title: str, message: str, priority: Optional[str] = None, fields: Optional[dict] = None):
+        embed = {
+            "title": title,
+            "description": message,
+            "fields": [{"name": str(k), "value": str(v)} for k, v in (fields or {}).items()],
+        }
+        payload = {"embeds": [embed]}
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        req = urllib.request.Request(self.url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.read()
+        except Exception as e:
+            _log(f"discord notification failed: {e}")
             return None
 
 

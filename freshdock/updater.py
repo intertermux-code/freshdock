@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 from typing import Optional
@@ -23,13 +24,16 @@ class Updater:
     """
 
     def __init__(self, db, engine, interval: int = 300, health_timeout: int = 60,
-                 registry: Optional[RegistryClient] = None, notifier: Optional[Notifier] = None):
+                 registry: Optional[RegistryClient] = None, notifier: Optional[Notifier] = None,
+                 notifiers: Optional[dict] = None, dry_run: bool = False):
         self.db = db
         self.engine = engine
         self.interval = interval
         self.health_timeout = health_timeout
         self.registry = registry if registry is not None else RegistryClient(db)
         self.notifier = notifier
+        self.notifiers = notifiers if notifiers is not None else {}
+        self.dry_run = dry_run
         self.running = False
 
     def run_once(self):
@@ -57,12 +61,18 @@ class Updater:
         last_digest = entry.get("last_digest")
 
         current_image = image
+        labels = {}
         if container:
             try:
                 info = self.engine.inspect_container(container)
                 current_image = info.get("Config", {}).get("Image") or info.get("Image")
+                labels = info.get("Config", {}).get("Labels") or {}
             except DockerAPIError:
                 current_image = image  # container gone; fall back to the configured image
+
+        if container and labels.get("com.freshdock.enable") == "false":
+            _log(f"container {container} excluded by label com.freshdock.enable=false")
+            return
 
         if not current_image:
             return
@@ -78,7 +88,7 @@ class Updater:
                 etag = result[1] if len(result) > 1 else None
             if cached and new_digest == cached.get("digest") and etag == cached.get("etag"):
                 return  # unchanged manifest; no registry round-trip burned
-            if self.db:
+            if self.db and not self.dry_run:
                 self.db.cache_manifest(current_image, new_digest, etag)
         except RateLimitedError as e:
             retry_after = e.headers.get("Retry-After") or e.headers.get("retry-after")
@@ -87,6 +97,8 @@ class Updater:
             except (TypeError, ValueError):
                 wait = 60
             _log(f"registry rate-limited; backing off {wait}s")
+            if self.dry_run:
+                return
             time.sleep(wait)
             return
         except RegistryError as e:
@@ -98,9 +110,16 @@ class Updater:
         if last_digest and new_digest == last_digest:
             return
 
+        notifier, notifier_name = self._notifier_for(labels)
         if container and current_image:
-            self._perform_update(container, current_image, last_digest, new_digest)
+            if self.dry_run:
+                self._dry_run_plan(container, current_image, last_digest, new_digest, notifier_name)
+                return
+            self._perform_update(container, current_image, last_digest, new_digest, notifier)
         else:
+            if self.dry_run:
+                print(f"freshdock [dry-run] {image}: digest {last_digest or '-'} -> {new_digest} (would record)")
+                return
             if self.db:
                 self.db.update_last_digest(container=container, image=image, digest=new_digest)
                 self.db.record_history(
@@ -108,7 +127,7 @@ class Updater:
                     old_digest=last_digest, new_digest=new_digest, status="detected",
                 )
 
-    def _perform_update(self, container: str, image: str, old_digest: Optional[str], new_digest: str):
+    def _perform_update(self, container: str, image: str, old_digest: Optional[str], new_digest: str, notifier: Optional[Notifier]):
         try:
             info = self.engine.inspect_container(container)
         except DockerAPIError as e:
@@ -148,7 +167,7 @@ class Updater:
                     container=container, image=image,
                     old_digest=old_digest, new_digest=new_digest, status="updated",
                 )
-            self._notify("freshdock: updated", f"{container} updated to {new_digest[:19]}")
+            self._notify("freshdock: updated", f"{container} updated to {new_digest[:19]}", notifier)
             return
 
         # Rollback: recreate pinned to the previous known-good digest.
@@ -162,7 +181,7 @@ class Updater:
                 old_digest=old_digest, new_digest=new_digest,
                 status="rollback", details={"reason": "unhealthy"},
             )
-        self._notify("freshdock: rollback", f"{container} rolled back after unhealthy update")
+        self._notify("freshdock: rollback", f"{container} rolled back after unhealthy update", notifier)
 
     def _create_kwargs(self, config: dict, host_config: dict) -> dict:
         """Carry the container's runtime config over to the recreated container."""
@@ -217,10 +236,57 @@ class Updater:
             except DockerAPIError:
                 pass
 
-    def _notify(self, title: str, message: str):
-        if not self.notifier:
+    def _notifier_for(self, labels: dict):
+        override = labels.get("com.freshdock.notify")
+        if not override:
+            return self.notifier, "default"
+        notifier = self.notifiers.get(override)
+        if notifier is None:
+            _log(f"unknown notifier '{override}' in com.freshdock.notify label; falling back to default")
+            return self.notifier, "default"
+        return notifier, override
+
+    def _dry_run_plan(self, container: str, image: str, old_digest: Optional[str], new_digest: str, notifier_name: str):
+        try:
+            info = self.engine.inspect_container(container)
+        except DockerAPIError as e:
+            print(f"freshdock [dry-run] {container}: cannot inspect container: {e}")
+            return
+        config = info.get("Config") or {}
+        host_config = info.get("HostConfig") or {}
+        name = (info.get("Name") or "").lstrip("/") or container
+        new_ref = pin_digest(image, new_digest)
+        old_ref = pin_digest(image, old_digest) if old_digest else None
+        print(f"freshdock [dry-run] {container}: {image} {old_digest or '-'} -> {new_digest}")
+        print(f"  plan: recreate {name} from {new_ref}")
+        preserve = []
+        env = config.get("Env") or []
+        if env:
+            preserve.append(f"env={len(env)}")
+        volumes = config.get("Volumes") or {}
+        if volumes:
+            preserve.append("volumes=" + ", ".join(sorted(volumes)))
+        ports = config.get("ExposedPorts") or {}
+        if ports:
+            preserve.append("ports=" + ", ".join(sorted(ports)))
+        bindings = host_config.get("PortBindings") or {}
+        if bindings:
+            preserve.append("port bindings=" + ", ".join(sorted(str(b) for b in bindings)))
+        restart = host_config.get("RestartPolicy")
+        if restart:
+            preserve.append("restart=" + json.dumps(restart))
+        print("  preserve: " + ("; ".join(preserve) if preserve else "none"))
+        title = "freshdock: updated"
+        message = f"{container} updated to {new_digest[:19]}"
+        print(f"  notify: {title} / {message} (notifier: {notifier_name})")
+        if old_ref:
+            print(f"  rollback target: {old_ref} if unhealthy")
+
+    def _notify(self, title: str, message: str, notifier: Optional[Notifier] = None):
+        n = notifier or self.notifier
+        if not n or self.dry_run:
             return
         try:
-            self.notifier.send(title, message)
+            n.send(title, message)
         except Exception as e:
             _log(f"notification failed: {e}")

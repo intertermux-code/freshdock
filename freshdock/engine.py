@@ -16,10 +16,10 @@ class MockDockerClient:
         self._next_health = None  # health status for next created container
         self.created_with = []  # records of (image, kwargs) passed to create_container
 
-    def set_container(self, container_id: str, image: str, health_status: str = "healthy"):
+    def set_container(self, container_id: str, image: str, health_status: str = "healthy", labels: Optional[dict] = None):
         self._containers[container_id] = {
             "Id": container_id,
-            "Config": {"Image": image},
+            "Config": {"Image": image, "Labels": labels or {}},
             "Image": image,
             "State": {"Health": {"Status": health_status}} if health_status is not None else {"Health": None},
         }

@@ -63,15 +63,91 @@ observation is recorded in SQLite for auditability.
 - `--db`: SQLite database path (default: `freshdock.db`)
 - `--interval`: seconds between checks in daemon mode (default: `300`)
 - `--health-timeout`: seconds to wait for healthy after an update (default: `60`)
-- `--ntfy-topic`: ntfy topic for update/rollback notifications (unset = silent)
-- No config file yet; everything is CLI flags. Do not commit your `freshdock.db`.
+- `--ntfy-topic`: ntfy topic for update/rollback notifications; without it, the
+  default notifier is a single configured webhook/discord URL, otherwise
+  unlabelled containers are silent unless `--ntfy-topic` is set
+- `--webhook-url`: webhook URL for update notifications (env: `FRESHDOCK_WEBHOOK_URL`)
+- `--discord-url`: Discord incoming webhook URL for update notifications (env: `FRESHDOCK_DISCORD_URL`)
+- `--dry-run`: detect and report changes without pulling, recreating, notifying, or writing state
+- No config file yet; everything is CLI flags or environment variables. Do not commit your `freshdock.db`.
 
-## Limitations (Run A)
+## Notifiers
 
-Run A deliberately leaves out certain features that may come in later runs:
-- Compose-label policies (label-driven configuration)
-- SMTP/webhook notifiers (only ntfy is included)
-- Dry-run mode
+Three notifiers are available; pick them with flags or environment variables.
+Without any notifier configured, `run` is silent.
+
+- **ntfy** (`--ntfy-topic` / env: none): POSTs `title` and `message` to
+  `https://ntfy.sh/<topic>`.
+- **webhook** (`--webhook-url` / env: `FRESHDOCK_WEBHOOK_URL`): POSTs a JSON
+  payload `{"title": ..., "body": ..., "fields": {...}}` to the configured URL.
+  Example payload:
+
+  ```json
+  {"title": "freshdock: updated", "body": "web updated to sha256:abcd1234...", "fields": {}}
+  ```
+
+- **discord** (`--discord-url` / env: `FRESHDOCK_DISCORD_URL`): POSTs a minimal
+  rich embed (title, description, fields) to a Discord incoming webhook URL.
+  Example payload:
+
+  ```json
+  {"embeds": [{"title": "freshdock: updated", "description": "web updated to sha256:abcd1234...", "fields": []}]}
+  ```
+
+All notifiers use a 10s request timeout, a single attempt (no retry), and log
+failures to stderr without aborting the run.
+
+## Compose-label policies
+
+freshdock reads Docker container labels from the Engine API container
+inspection:
+
+- `com.freshdock.enable`: set to `"false"` to exclude a container from
+  watching (default: watched).
+- `com.freshdock.notify`: override the default notifier for this container
+  (e.g. `"webhook"`). The name must match a configured notifier; an unknown
+  name falls back to the default with a stderr warning.
+
+Label values must be strings (quote them in Compose files).
+
+Example Compose file:
+
+```yaml
+services:
+  web:
+    image: nginx:latest
+    labels:
+      com.freshdock.enable: "true"
+      com.freshdock.notify: "webhook"
+  worker:
+    image: redis:latest
+    labels:
+      com.freshdock.enable: "false"
+```
+
+Here `web` is watched and notified via the webhook notifier, while `worker` is
+excluded from watching entirely.
+
+## Dry-run mode
+
+`--dry-run` works with both `--once` and `--interval`. The full detection
+pipeline runs (digest checks against the registry) but nothing is pulled, no
+container is recreated, no notifier is called, and no state is written. The
+plan is printed to stdout:
+
+```
+freshdock [dry-run] web: nginx:latest sha256:old -> sha256:new
+  plan: recreate web from nginx@sha256:new
+  preserve: env=2; volumes=/data; ports=80/tcp; port bindings=0.0.0.0:80->80/tcp
+  notify: freshdock: updated / web updated to sha256:abcd... (notifier: webhook)
+  rollback target: nginx@sha256:old if unhealthy
+```
+
+Exit codes are unchanged: 0 on success, 1 on Docker API error, 2 on usage
+error.
+
+## Limitations
+
 - PyPI publishing (packaging metadata ships, but no release workflow yet)
 
 ## Testing
