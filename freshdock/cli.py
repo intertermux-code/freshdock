@@ -3,6 +3,7 @@ import json
 import os
 import sys
 
+from . import __version__
 from .config import DEFAULT_DB_PATH
 from .db import Database
 from .engine import DockerEngine, DockerAPIError
@@ -127,6 +128,7 @@ def cmd_run(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="freshdock")
+    parser.add_argument("--version", action="version", version=f"freshdock {__version__}")
     sub = parser.add_subparsers(dest="cmd")
 
     p_watch = sub.add_parser("watch", help="Watch a container or image")

@@ -1,5 +1,8 @@
 # freshdock
 
+[![PyPI](https://img.shields.io/pypi/v/freshdock)](https://pypi.org/project/freshdock/)
+[![Tests](https://github.com/intertermux-code/freshdock/actions/workflows/test.yml/badge.svg)](https://github.com/intertermux-code/freshdock/actions/workflows/test.yml)
+
 freshdock is a lightweight Docker auto-updater focused on safety and predictability. It fills the space left by container update tools by keeping things simple: watch containers/images, check registries for new digests, update containers with health-gated rollout, and rollback on failure.
 
 ## What it is and isn't
@@ -12,36 +15,41 @@ freshdock is a lightweight Docker auto-updater focused on safety and predictabil
 ## Quick Start
 
 1. Install Python 3.9+.
-2. Clone the repo and run from source:
+2. Install from PyPI (from a source checkout, `pip install -e .` gives the same
+   command, and `python -m freshdock` works without installing):
 
 ```bash
-python -m freshdock --help
+pip install freshdock
+freshdock --help
 ```
+
+   To run straight from a source checkout instead, `python -m freshdock --help`
+   works without installing (or `pip install -e .` for the `freshdock` command).
 
 3. Watch a container and run once:
 
 ```bash
-python -m freshdock watch --container <container_name>
-python -m freshdock run --once
+freshdock watch --container <container_name>
+freshdock run --once
 ```
 
 4. Run as a daemon with interval:
 
 ```bash
-python -m freshdock run --interval 300
+freshdock run --interval 300
 ```
 
 5. See what is watched, and stop watching something:
 
 ```bash
-python -m freshdock list
-python -m freshdock remove --container <container_name>
+freshdock list
+freshdock remove --container <container_name>
 ```
 
 6. View history:
 
 ```bash
-python -m freshdock history
+freshdock history
 ```
 
 ## Rollback guarantee
@@ -146,14 +154,35 @@ freshdock [dry-run] web: nginx:latest sha256:old -> sha256:new
 Exit codes are unchanged: 0 on success, 1 on Docker API error, 2 on usage
 error.
 
-## Limitations
+## Releasing
 
-- PyPI publishing (packaging metadata ships, but no release workflow yet)
+Releases are published to PyPI by GitHub Actions using OIDC trusted publishing,
+so no API token is stored anywhere:
+
+1. Bump the version in `pyproject.toml` and `freshdock/__init__.py`. A test
+   keeps the two in sync.
+2. Tag the release and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+   The publish workflow checks the tag against `pyproject.toml` and fails if
+   they differ; otherwise it builds an sdist and a wheel and uploads them to
+   PyPI. Running the workflow manually does the same thing without a tag.
+3. Optionally create the matching GitHub release for the tag.
+
+Before the first release, a maintainer has to register the `freshdock` project
+on PyPI and configure a trusted publisher for it: owner/repository
+`intertermux-code/freshdock`, workflow name `Publish`, and no environment
+(the workflow does not declare one).
 
 ## Testing
 
-Run the full test suite:
+The suite is 44 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
 
 ```bash
+pip install -e .
 python -m unittest discover -v
+```
+
+pytest works too:
+
+```bash
+python -m pytest
 ```

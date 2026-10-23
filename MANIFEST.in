@@ -1,0 +1,8 @@
+include LICENSE
+include README.md
+
+prune freshdock/tests
+prune freshdock.egg-info
+prune .pytest_cache
+exclude setup.cfg
+global-exclude *.py[cod]
