@@ -29,8 +29,8 @@ class NtfyNotifier(Notifier):
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.read()
-        except Exception:
-            # Swallow errors as per stdlib only - don't crash
+        except Exception as e:
+            _log(f"ntfy notification failed: {e}")
             return None
 
 
