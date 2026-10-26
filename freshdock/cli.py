@@ -39,12 +39,14 @@ def _default_notifier(notifiers):
 
 
 def cmd_watch(args):
-    db = _get_db(args)
     container = args.container
     image = args.image
+    # Report through the watch subparser so the message and exit status match
+    # every other usage error, and do it before opening the store so a rejected
+    # invocation cannot leave an empty freshdock.db behind.
     if not container and not image:
-        print("Error: either --container or --image is required", file=sys.stderr)
-        sys.exit(1)
+        args.parser.error("one of --container or --image is required")
+    db = _get_db(args)
     try:
         db.watch(container=container, image=image)
     finally:
@@ -135,7 +137,7 @@ def main(argv=None):
     p_watch.add_argument("--container", type=str, help="Container name/ID")
     p_watch.add_argument("--image", type=str, help="Image reference")
     p_watch.add_argument("--db", type=str, help="Path to SQLite DB")
-    p_watch.set_defaults(func=cmd_watch)
+    p_watch.set_defaults(func=cmd_watch, parser=p_watch)
 
     p_list = sub.add_parser("list", help="List watched entries")
     p_list.add_argument("--db", type=str, help="Path to SQLite DB")
