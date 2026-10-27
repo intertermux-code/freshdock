@@ -89,7 +89,7 @@ class TestWatchedEntries(unittest.TestCase):
         self.assertEqual(digests, {(None, "sha256:new"), ("c1", None)})
 
 
-def _serve_once(sock_path, response):
+def _serve_once(sock_path, response, ready):
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         os.unlink(sock_path)
@@ -97,6 +97,7 @@ def _serve_once(sock_path, response):
         pass
     srv.bind(sock_path)
     srv.listen(1)
+    ready.set()  # signal only after the socket is actually listening
     conn, _ = srv.accept()
     try:
         conn.recv(65536)  # read the request; content asserted via response choice
@@ -108,16 +109,12 @@ def _serve_once(sock_path, response):
 
 class TestUnixSocketClient(unittest.TestCase):
     def _run(self, response):
-        import time
-
         tmp = tempfile.mkdtemp()
         path = os.path.join(tmp, "docker.sock")
-        t = threading.Thread(target=_serve_once, args=(path, response), daemon=True)
+        ready = threading.Event()
+        t = threading.Thread(target=_serve_once, args=(path, response, ready), daemon=True)
         t.start()
-        for _ in range(100):  # wait for the server to bind
-            if os.path.exists(path):
-                break
-            time.sleep(0.02)
+        ready.wait(timeout=5)
         client = _UnixSocketClient(path, timeout=5)
         return client, t
 
