@@ -67,17 +67,21 @@ observation is recorded in SQLite for auditability.
 
 ## Configuration
 
-- `--socket`: Docker Engine unix socket (default: `/var/run/docker.sock`)
 - `--db`: SQLite database path (default: `freshdock.db`)
-- `--interval`: seconds between checks in daemon mode (default: `300`)
-- `--health-timeout`: seconds to wait for healthy after an update (default: `60`)
-- `--ntfy-topic`: ntfy topic for update/rollback notifications; without it, the
+- No config file yet; everything is CLI flags or environment variables. Do not commit your `freshdock.db`.
+
+## Run options
+
+- `freshdock run --socket`: Docker Engine unix socket (default: `/var/run/docker.sock`)
+- `freshdock run --interval`: seconds between checks in daemon mode (default: `300`)
+- `freshdock run --health-timeout`: seconds to wait for healthy after an update (default: `60`)
+- `freshdock run --ntfy-topic`: ntfy topic for update/rollback notifications; without it, the
   default notifier is a single configured webhook/discord URL, otherwise
   unlabelled containers are silent unless `--ntfy-topic` is set
-- `--webhook-url`: webhook URL for update notifications (env: `FRESHDOCK_WEBHOOK_URL`)
-- `--discord-url`: Discord incoming webhook URL for update notifications (env: `FRESHDOCK_DISCORD_URL`)
-- `--dry-run`: detect and report changes without pulling, recreating, notifying, or writing state
-- No config file yet; everything is CLI flags or environment variables. Do not commit your `freshdock.db`.
+- `freshdock run --webhook-url`: webhook URL for update notifications (env: `FRESHDOCK_WEBHOOK_URL`)
+- `freshdock run --discord-url`: Discord incoming webhook URL for update notifications (env: `FRESHDOCK_DISCORD_URL`)
+- `freshdock run --dry-run`: detect and report changes without pulling, recreating, notifying, or writing state
+- `freshdock run --once`: check once and exit
 
 ## Notifiers
 
@@ -146,13 +150,12 @@ plan is printed to stdout:
 ```
 freshdock [dry-run] web: nginx:latest sha256:old -> sha256:new
   plan: recreate web from nginx@sha256:new
-  preserve: env=2; volumes=/data; ports=80/tcp; port bindings=0.0.0.0:80->80/tcp
-  notify: freshdock: updated / web updated to sha256:abcd... (notifier: webhook)
+  preserve: env=2; volumes=/data; ports=80/tcp; port bindings=80/tcp
+  notify: freshdock: updated / web updated to sha256:new (notifier: webhook)
   rollback target: nginx@sha256:old if unhealthy
 ```
 
-Exit codes are unchanged: 0 on success, 1 on Docker API error, 2 on usage
-error.
+Exit codes are unchanged: 0 on success, 1 on Docker API error from `run` (when the updater aborts due to a Docker API error), 2 on usage error.
 
 ## Releasing
 
@@ -178,11 +181,5 @@ The suite is 49 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
 
 ```bash
 pip install -e .
-python -m unittest discover -v
-```
-
-pytest works too:
-
-```bash
-python -m pytest
+python -m unittest discover
 ```
