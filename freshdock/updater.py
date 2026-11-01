@@ -156,32 +156,36 @@ class Updater:
 
         new_cid = self._recreate(new_ref, name, create_kwargs)
         if new_cid is None:
+            reason = "create failed"
+            message = f"{container} rolled back after a failed create"
             _log(f"failed to recreate {container} with {new_ref}")
-            return
-        healthy = self._start_and_wait_health(new_cid)
+        else:
+            reason = "unhealthy"
+            message = f"{container} rolled back after unhealthy update"
+            if self._start_and_wait_health(new_cid):
+                if self.db:
+                    self.db.update_last_digest(container=container, image=image, digest=new_digest)
+                    self.db.record_history(
+                        container=container, image=image,
+                        old_digest=old_digest, new_digest=new_digest, status="updated",
+                    )
+                self._notify("freshdock: updated", f"{container} updated to {new_digest[:19]}", notifier)
+                return
+            _log(f"{container} unhealthy after update; rolling back")
+            self._remove_quietly(new_cid)
 
-        if healthy:
-            if self.db:
-                self.db.update_last_digest(container=container, image=image, digest=new_digest)
-                self.db.record_history(
-                    container=container, image=image,
-                    old_digest=old_digest, new_digest=new_digest, status="updated",
-                )
-            self._notify("freshdock: updated", f"{container} updated to {new_digest[:19]}", notifier)
-            return
-
-        # Rollback: recreate pinned to the previous known-good digest.
-        _log(f"{container} unhealthy after update; rolling back")
-        self._remove_quietly(new_cid)
+        # The old container was stopped and removed above, so a create that
+        # never came back is rolled back exactly like an unhealthy one: leaving
+        # it deleted would be an outage freshdock only mentions in a log line.
         old_ref = pin_digest(image, old_digest) if old_digest else image
         self._recreate(old_ref, name, create_kwargs)
         if self.db:
             self.db.record_history(
                 container=container, image=image,
                 old_digest=old_digest, new_digest=new_digest,
-                status="rollback", details={"reason": "unhealthy"},
+                status="rollback", details={"reason": reason},
             )
-        self._notify("freshdock: rollback", f"{container} rolled back after unhealthy update", notifier)
+        self._notify("freshdock: rollback", message, notifier)
 
     def _create_kwargs(self, config: dict, host_config: dict) -> dict:
         """Carry the container's runtime config over to the recreated container."""

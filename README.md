@@ -62,8 +62,10 @@ port bindings, restart policy). It then waits for the container's healthcheck
 healthy once running). If the new container reports unhealthy or the wait
 times out, freshdock removes it and recreates the container pinned to the
 previous known-good digest — not the floating tag, so a broken registry
-state can't sabotage the restore. Every update, rollback, and digest
-observation is recorded in SQLite for auditability.
+state can't sabotage the restore. The same rollback runs when the create or
+the start itself fails, since the original container has already been removed
+by then. Every update, rollback, and digest observation is recorded in SQLite
+for auditability.
 
 ## Configuration
 
@@ -177,7 +179,7 @@ on PyPI and configure a trusted publisher for it: owner/repository
 
 ## Testing
 
-The suite is 49 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
+The suite is 50 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
 
 ```bash
 pip install -e .
