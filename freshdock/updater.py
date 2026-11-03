@@ -87,7 +87,10 @@ class Updater:
                 new_digest = result[0]
                 etag = result[1] if len(result) > 1 else None
             if cached and new_digest == cached.get("digest") and etag == cached.get("etag"):
-                return  # unchanged manifest; no registry round-trip burned
+                if not last_digest or new_digest == last_digest:
+                    return  # unchanged manifest; no registry round-trip burned
+                # Manifest unchanged but the update has not been applied yet
+                # (e.g. a previous attempt failed); fall through and retry.
             if self.db and not self.dry_run:
                 self.db.cache_manifest(current_image, new_digest, etag)
         except RateLimitedError as e:
@@ -185,6 +188,8 @@ class Updater:
                 old_digest=old_digest, new_digest=new_digest,
                 status="rollback", details={"reason": reason},
             )
+        if self.db and not self.dry_run:
+            self.db.cache_manifest(image, old_digest, None)
         self._notify("freshdock: rollback", message, notifier)
 
     def _create_kwargs(self, config: dict, host_config: dict) -> dict:
