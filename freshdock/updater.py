@@ -12,6 +12,37 @@ def _log(message: str):
     print(f"freshdock: {message}", file=sys.stderr)
 
 
+def _normalize_image_repo(ref: str) -> str:
+    # Drop a pinned digest and any tag, leaving the repo path, then normalize
+    # so a bare image name matches its library/ form and
+    # docker.io/library/nginx matches nginx.
+    ref = ref.split("@", 1)[0]
+    slash = ref.rfind("/")
+    colon = ref.rfind(":")
+    if colon > slash:
+        ref = ref[:colon]
+    if "/" in ref:
+        first, _, rest = ref.partition("/")
+        if first == "docker.io":
+            ref = rest
+    else:
+        ref = f"library/{ref}"
+    return ref
+
+
+def _manifest_digest_for(image_info: dict, image_ref: str):
+    # Return the manifest digest from the RepoDigests entry whose repo matches
+    # the watched image, or None when no entry matches.
+    target = _normalize_image_repo(image_ref)
+    for entry in image_info.get("RepoDigests") or []:
+        if "@" not in entry:
+            continue
+        repo, _, digest = entry.rpartition("@")
+        if _normalize_image_repo(repo) == target:
+            return digest
+    return None
+
+
 class Updater:
     """Poll registries for watched containers/images and apply health-gated updates.
 
@@ -62,11 +93,12 @@ class Updater:
 
         current_image = image
         labels = {}
+        container_info = None
         if container:
             try:
-                info = self.engine.inspect_container(container)
-                current_image = info.get("Config", {}).get("Image") or info.get("Image")
-                labels = info.get("Config", {}).get("Labels") or {}
+                container_info = self.engine.inspect_container(container)
+                current_image = container_info.get("Config", {}).get("Image") or container_info.get("Image")
+                labels = container_info.get("Config", {}).get("Labels") or {}
             except DockerAPIError:
                 current_image = image  # container gone; fall back to the configured image
 
@@ -87,8 +119,8 @@ class Updater:
                 new_digest = result[0]
                 etag = result[1] if len(result) > 1 else None
             if cached and new_digest == cached.get("digest") and etag == cached.get("etag"):
-                if not last_digest or new_digest == last_digest:
-                    return  # unchanged manifest; no registry round-trip burned
+                if last_digest and new_digest == last_digest:
+                    return  # unchanged manifest; update already applied
                 # Manifest unchanged but the update has not been applied yet
                 # (e.g. a previous attempt failed); fall through and retry.
             if self.db and not self.dry_run:
@@ -112,6 +144,31 @@ class Updater:
             return
         if last_digest and new_digest == last_digest:
             return
+
+        # NULL baseline: a missing baseline means "unknown", not "changed".
+        # Resolve the running image's manifest digest through the image inspect
+        # endpoint (RepoDigests) and compare it to the registry's manifest
+        # digest. Container inspect's top-level Image is the image config
+        # digest, which never equals a registry manifest digest, so it must
+        # not be compared directly. If the image has no matching RepoDigests
+        # or inspect fails, fall through to the update path: never invent a
+        # baseline, never skip an update we cannot prove unneeded.
+        if last_digest is None and container and container_info:
+            running_digest = None
+            try:
+                image_info = self.engine.inspect_image(current_image)
+            except DockerAPIError:
+                image_info = None
+            if image_info:
+                running_digest = _manifest_digest_for(image_info, image)
+            if running_digest and running_digest == new_digest:
+                if self.db and not self.dry_run:
+                    self.db.update_last_digest(container=container, image=image, digest=new_digest)
+                    self.db.record_history(
+                        container=container, image=image,
+                        old_digest=None, new_digest=new_digest, status="baseline",
+                    )
+                return
 
         notifier, notifier_name = self._notifier_for(labels)
         if container and current_image:

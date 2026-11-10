@@ -27,6 +27,17 @@ class MockDockerClient:
     def set_image(self, image_ref: str, digest: str):
         self._images[image_ref] = digest
 
+    def inspect_image(self, image_ref: str):
+        if image_ref not in self._images:
+            raise DockerAPIError(f"image {image_ref} not found")
+        digest = self._images[image_ref]
+        ref = image_ref.split("@", 1)[0]
+        slash = ref.rfind("/")
+        colon = ref.rfind(":")
+        if colon > slash:
+            ref = ref[:colon]
+        return {"RepoDigests": [f"{ref}@{digest}"]}
+
     def set_next_health(self, health_status: str = "healthy"):
         self._next_health = health_status
 
@@ -91,6 +102,9 @@ class DockerEngine:
 
     def inspect_container(self, container_id: str):
         return self._request("GET", f"/containers/{container_id}/json")
+
+    def inspect_image(self, image_ref: str):
+        return self._request("GET", f"/images/{urllib.parse.quote(image_ref, safe='')}/json")
 
     def list_containers(self):
         return self._request("GET", "/containers/json")

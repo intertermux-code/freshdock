@@ -179,7 +179,7 @@ on PyPI and configure a trusted publisher for it: owner/repository
 
 ## Testing
 
-The suite is 53 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
+The suite is 60 tests and runs on Python 3.11, 3.12 and 3.13 in CI:
 
 ```bash
 pip install -e .
