@@ -75,6 +75,11 @@ def cmd_list(args):
 
 
 def cmd_remove(args):
+    # Report through the remove subparser so the message and exit status match
+    # every other usage error, and do it before opening the store so a rejected
+    # invocation cannot leave an empty freshdock.db behind.
+    if not args.container and not args.image:
+        args.parser.error("one of --container or --image is required")
     db = _get_db(args)
     try:
         db.remove(container=args.container, image=args.image)
@@ -147,7 +152,7 @@ def main(argv=None):
     p_remove.add_argument("--container", type=str, help="Container name/ID")
     p_remove.add_argument("--image", type=str, help="Image reference")
     p_remove.add_argument("--db", type=str, help="Path to SQLite DB")
-    p_remove.set_defaults(func=cmd_remove)
+    p_remove.set_defaults(func=cmd_remove, parser=p_remove)
 
     p_history = sub.add_parser("history", help="Show update history")
     p_history.add_argument("--limit", type=int, default=20)
