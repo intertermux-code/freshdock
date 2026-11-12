@@ -5,7 +5,7 @@ import sys
 
 from . import __version__
 from .config import DEFAULT_DB_PATH
-from .db import Database
+from .db import Database, DatabaseError
 from .engine import DockerEngine, DockerAPIError
 from .notifier import NtfyNotifier, WebhookNotifier, DiscordNotifier
 
@@ -182,4 +182,8 @@ def main(argv=None):
     if not args.cmd:
         parser.print_help()
         return
-    args.func(args)
+    try:
+        args.func(args)
+    except DatabaseError as e:
+        print(f"freshdock: {e}", file=sys.stderr)
+        sys.exit(2)

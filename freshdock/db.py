@@ -3,10 +3,19 @@ import sqlite3
 from typing import List, Optional
 
 
+class DatabaseError(Exception):
+    """The SQLite store could not be opened at the given path."""
+
+
 class Database:
     def __init__(self, db_path: str = "freshdock.db"):
         self.db_path = db_path
-        self.conn = sqlite3.connect(self.db_path)
+        try:
+            self.conn = sqlite3.connect(self.db_path)
+        except sqlite3.OperationalError as e:
+            raise DatabaseError(
+                f"cannot open database '{self.db_path}': {e}"
+            ) from None
         self.conn.row_factory = sqlite3.Row
         self._init_tables()
 
