@@ -83,6 +83,8 @@ class Updater:
         for entry in self.db.list_watched():
             try:
                 self._check_entry(entry)
+            except DockerAPIError:
+                raise
             except Exception as e:
                 _log(f"check failed for {entry.get('container') or entry.get('image')}: {e}")
 
